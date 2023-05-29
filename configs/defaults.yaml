@@ -1,0 +1,31 @@
+exp_name: caogao
+model_name: gcnresnet
+dataset: modelnet40
+batch_size: 32
+test_batch_size: 16
+epochs: 60
+use_sgd: False
+lr: 0.001
+momentum: 0.9
+cuda: True
+seed: 1
+eval: True
+num_points: 1024
+dropout: 0.5
+emb_dims: 1024 # 
+k: 20
+model_path: None
+use_smooth: False
+gcn_layers: 5
+address_overfitting: True
+use_wandb: True
+
+# gcnresnet
+use_resnet: False
+res_in: 3
+res_hid: 64
+res_out: 40
+res_num_blocks: 6
+use_polynomial: False
+# gcnpolynomial
+f_times: 6
