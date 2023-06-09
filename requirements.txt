@@ -2,8 +2,9 @@ torch
 argparse
 sklearn
 ipdb
-hydra
+hydra-core
 wandb
 tqdm
 pandas
 numpy
+chardet

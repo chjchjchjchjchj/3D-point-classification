@@ -1,19 +1,20 @@
 exp_name: caogao
-model_name: gcnresnet
+model_name: gcnresnet # the name of model, we have ['gcn', 'gcnresnet', 'gcnpolynomial', 'pointnet', 'dgcnn']
+# model_name: gcn
 dataset: modelnet40
 batch_size: 32
 test_batch_size: 16
-epochs: 60
+epochs: 1
 use_sgd: False
 lr: 0.001
 momentum: 0.9
 cuda: True
 seed: 1
-eval: True
-num_points: 1024
+eval: False
+num_points: 1024 # the number of points delivered for model training/testing
 dropout: 0.5
-emb_dims: 1024 # 
-k: 20
+emb_dims: 1024  
+k: 20 # the number of nearest neighbors to consider for each point when constructing the adjacency matrix using k-nearest neighbors (kNN) algorithm.
 model_path: None
 use_smooth: False
 gcn_layers: 5
@@ -27,5 +28,6 @@ res_hid: 64
 res_out: 40
 res_num_blocks: 6
 use_polynomial: False
+
 # gcnpolynomial
 f_times: 6

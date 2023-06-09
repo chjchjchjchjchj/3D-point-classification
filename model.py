@@ -1,3 +1,10 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""
+@Author: Haojun Chen
+@Contact: chjchjchjchjchj2001@gmail.com
+"""
+
 import os
 import sys
 import copy
@@ -8,139 +15,73 @@ import torch.nn as nn
 import torch.nn.functional as F
 from sklearn.neighbors import NearestNeighbors
 import ipdb
-def knn(x, k):
-    inner = -2*torch.matmul(x.transpose(2, 1), x)
-    xx = torch.sum(x**2, dim=1, keepdim=True)
-    pairwise_distance = -xx - inner - xx.transpose(2, 1)
- 
-    idx = pairwise_distance.topk(k=k, dim=-1)[1]   # (batch_size, num_points, k)
-    return idx
 
-
-def get_graph_feature(x, k=20, idx=None):
-    batch_size = x.size(0)
-    num_points = x.size(2)
-    x = x.view(batch_size, -1, num_points)
-    if idx is None:
-        idx = knn(x, k=k)   # (batch_size, num_points, k)
-    device = torch.device('cuda')
-
-    idx_base = torch.arange(0, batch_size, device=device).view(-1, 1, 1)*num_points
-
-    idx = idx + idx_base
-
-    idx = idx.view(-1)
- 
-    _, num_dims, _ = x.size()
-
-    x = x.transpose(2, 1).contiguous()   # (batch_size, num_points, num_dims)  -> (batch_size*num_points, num_dims) #   batch_size * num_points * k + range(0, batch_size*num_points)
-    feature = x.view(batch_size*num_points, -1)[idx, :]
-    feature = feature.view(batch_size, num_points, k, num_dims) 
-    x = x.view(batch_size, num_points, 1, num_dims).repeat(1, 1, k, 1)
-    
-    feature = torch.cat((feature-x, x), dim=3).permute(0, 3, 1, 2).contiguous()
-  
-    return feature
-
-
-class PointNet(nn.Module):
-    def __init__(self, args, output_channels=40):
-        super(PointNet, self).__init__()
-        self.args = args
-        self.conv1 = nn.Conv1d(3, 64, kernel_size=1, bias=False)
-        self.conv2 = nn.Conv1d(64, 64, kernel_size=1, bias=False)
-        self.conv3 = nn.Conv1d(64, 64, kernel_size=1, bias=False)
-        self.conv4 = nn.Conv1d(64, 128, kernel_size=1, bias=False)
-        self.conv5 = nn.Conv1d(128, args.emb_dims, kernel_size=1, bias=False)
-        self.bn1 = nn.BatchNorm1d(64)
-        self.bn2 = nn.BatchNorm1d(64)
-        self.bn3 = nn.BatchNorm1d(64)
-        self.bn4 = nn.BatchNorm1d(128)
-        self.bn5 = nn.BatchNorm1d(args.emb_dims)
-        self.linear1 = nn.Linear(args.emb_dims, 512, bias=False)
-        self.bn6 = nn.BatchNorm1d(512)
-        self.dp1 = nn.Dropout()
-        self.linear2 = nn.Linear(512, output_channels)
+class BaseGCN(nn.Module):
+    def __init__(self, N=1024):
+        super(BaseGCN, self).__init__()
+        self.N = N
 
     def forward(self, x):
-        x = F.relu(self.bn1(self.conv1(x)))
-        x = F.relu(self.bn2(self.conv2(x)))
-        x = F.relu(self.bn3(self.conv3(x)))
-        x = F.relu(self.bn4(self.conv4(x)))
-        x = F.relu(self.bn5(self.conv5(x)))
-        x = F.adaptive_max_pool1d(x, 1).squeeze()
-        x = F.relu(self.bn6(self.linear1(x)))
-        x = self.dp1(x)
-        x = self.linear2(x)
-        return x
+        raise NotImplementedError
 
+    def get_adj(self, x):
+        """
+        Calculates adjacency matrices based on pairwise distances between points.
 
-class DGCNN(nn.Module):
-    def __init__(self, args, output_channels=40):
-        super(DGCNN, self).__init__()
-        self.args = args
-        self.k = args.k
-        
-        self.bn1 = nn.BatchNorm2d(64)
-        self.bn2 = nn.BatchNorm2d(64)
-        self.bn3 = nn.BatchNorm2d(128)
-        self.bn4 = nn.BatchNorm2d(256)
-        self.bn5 = nn.BatchNorm1d(args.emb_dims)
+        Args:
+            x: Input tensor of shape (B, N, C), where B is the batch size, N is the number of points, and C is the number of features.
 
-        self.conv1 = nn.Sequential(nn.Conv2d(6, 64, kernel_size=1, bias=False),
-                                   self.bn1,
-                                   nn.LeakyReLU(negative_slope=0.2))
-        self.conv2 = nn.Sequential(nn.Conv2d(64*2, 64, kernel_size=1, bias=False),
-                                   self.bn2,
-                                   nn.LeakyReLU(negative_slope=0.2))
-        self.conv3 = nn.Sequential(nn.Conv2d(64*2, 128, kernel_size=1, bias=False),
-                                   self.bn3,
-                                   nn.LeakyReLU(negative_slope=0.2))
-        self.conv4 = nn.Sequential(nn.Conv2d(128*2, 256, kernel_size=1, bias=False),
-                                   self.bn4,
-                                   nn.LeakyReLU(negative_slope=0.2))
-        self.conv5 = nn.Sequential(nn.Conv1d(512, args.emb_dims, kernel_size=1, bias=False),
-                                   self.bn5,
-                                   nn.LeakyReLU(negative_slope=0.2))
-        self.linear1 = nn.Linear(args.emb_dims*2, 512, bias=False)
-        self.bn6 = nn.BatchNorm1d(512)
-        self.dp1 = nn.Dropout(p=args.dropout)
-        self.linear2 = nn.Linear(512, 256)
-        self.bn7 = nn.BatchNorm1d(256)
-        self.dp2 = nn.Dropout(p=args.dropout)
-        self.linear3 = nn.Linear(256, output_channels)
+        Returns:
+            Adjacency matrices of shape (B, N, N).
+        """
+        B, N, _ = x.size()
+        distances = torch.cdist(x, x, p=2) # (B, N, N) Pairwise distances between points using Euclidean distance metric
+        _, indices = torch.topk(distances, k=self.k, dim=-1, largest=False) # _: (B, N, N), sorted distances ; indices: (B, N, k), index of the knn for each point
+        adjacency_matrices = torch.zeros(B, N, N, device=x.device)
+        adjacency_matrices.scatter_(2, indices, 1) # modifies the adjacency matrices by setting the indices of the k nearest neighbors to 1
+        return adjacency_matrices
 
-    def forward(self, x):
-        batch_size = x.size(0)
-        x = get_graph_feature(x, k=self.k)
-        x = self.conv1(x)
-        x1 = x.max(dim=-1, keepdim=False)[0]
+    def process_graph(self, adjs):
+        """
+        Processes the adjacency matrices to obtain normalized adjacency matrices.
 
-        x = get_graph_feature(x1, k=self.k)
-        x = self.conv2(x)
-        x2 = x.max(dim=-1, keepdim=False)[0]
+        Args:
+            adjs: Input adjacency matrices of shape (B, N, N).
 
-        x = get_graph_feature(x2, k=self.k)
-        x = self.conv3(x)
-        x3 = x.max(dim=-1, keepdim=False)[0]
+        Returns:
+            According of L=I_N-D^{-\frac{1}{2}}AD^{-\frac{1}{2}} in https://arxiv.org/pdf/1609.02907.pdf
+            Normalized adjacency matrices of shape (B, N, N).
+        """
+        B, N, _ = adjs.size()
+        degrees = torch.sum(adjs, dim=2) # (B, N)
+        D = torch.diag_embed(degrees) # (B, N, N)
+        D_sqrt_inv = torch.sqrt(torch.reciprocal(D)) # (B, N, N) D^{-\frac{1}{2}}
+        D_sqrt_inv[torch.isinf(D_sqrt_inv)] = 0.0 # Replaces any infinite values in D_sqrt_inv with 0.0
 
-        x = get_graph_feature(x3, k=self.k)
-        x = self.conv4(x)
-        x4 = x.max(dim=-1, keepdim=False)[0]
+        normalized_adj_matrices = torch.eye(N, device=D.device).unsqueeze(0).repeat(B, 1, 1) - torch.bmm(torch.bmm(D_sqrt_inv, adjs), D_sqrt_inv.transpose(1, 2)) # I_N-D^{-\frac{1}{2}}AD^{-\frac{1}{2}}
 
-        x = torch.cat((x1, x2, x3, x4), dim=1)
+        return normalized_adj_matrices
 
-        x = self.conv5(x)
-        x1 = F.adaptive_max_pool1d(x, 1).view(batch_size, -1)
-        x2 = F.adaptive_avg_pool1d(x, 1).view(batch_size, -1)
-        x = torch.cat((x1, x2), 1)
+    def address_overfitting_graph(self, adjs):
+        """
+        Addresses overfitting in adjacency matrices by adding self-loops and performing normalization.
 
-        x = F.leaky_relu(self.bn6(self.linear1(x)), negative_slope=0.2)
-        x = self.dp1(x)
-        x = F.leaky_relu(self.bn7(self.linear2(x)), negative_slope=0.2)
-        x = self.dp2(x)
-        x = self.linear3(x)
-        return x
+        Args:
+            adjs: Input adjacency matrices of shape (B, N, N).
+
+        Returns:
+            According to \tilde{D} = \tilde{D}^{-\frac12}\tilde{A}\tilde{D}^{-\frac12} in https://arxiv.org/pdf/1609.02907.pdf
+            New adjacency matrices with self-loops and normalization, of shape (B, N, N).
+        """
+        B, N, _ = adjs.size()
+        indentity = torch.eye(N, device=adjs.device).unsqueeze(0).repeat(B, 1, 1)
+        adjs_hat = adjs + indentity
+        D_hat = torch.diag_embed(torch.sum(adjs_hat, dim=2))
+        D_hat_sqrt_inv = torch.sqrt(torch.reciprocal(D_hat))
+        D_hat_sqrt_inv[torch.isinf(D_hat_sqrt_inv)] = 0.0
+        new_matrix = torch.bmm(torch.bmm(D_hat_sqrt_inv, adjs_hat), D_hat_sqrt_inv)
+
+        return new_matrix
 
 class BatchNormWrapper(nn.Module):
     def __init__(self, features):
@@ -163,19 +104,23 @@ class GCNResidualBlock(nn.Module):
         self.dropout = args.dropout
 
     def forward(self, x, adj):
-        h = self.gcn1(x, adj)
+        """
+        Args:
+            x: (B, N, C) - Batch of input features for each node
+            adj: (B, N, N) - Batch of adjacency matrices
+        Returns:
+            (B, N, out_dim)
+        """
+        h = self.gcn1(x, adj) # (B, N, hidden_dim)
         h = F.relu(h)
-        h = self.gcn2(h, adj)
+        h = self.gcn2(h, adj) # (B, N, out_dim)
         B, N, C = h.size()
         h = h.view(-1, C)
-        h = self.bn(h)
-        h = h.view(B, N, C)
-        # h = F.relu(h + x)
-        # output = F.dropout(h, self.dropout, training=self.training)
-        # return output  # residual
+        h = self.bn(h) # (B*N, out_dim)
+        h = h.view(B, N, C) # (B, N, out_dim)
         return F.relu(h + x)
 
-class GCNResNet(nn.Module):
+class GCNResNet(BaseGCN):
     def __init__(self, args, N=1024):
         super(GCNResNet, self).__init__()
         in_features, hidden_features, out_features, num_blocks = args.res_in, args.res_hid, args.res_out, args.res_num_blocks
@@ -212,11 +157,6 @@ class GCNResNet(nn.Module):
         self.bn6 = nn.BatchNorm1d(512)
 
         self.linear7 = nn.Linear(512, out_features)
-        # self.dp = nn.Dropout(p=args.dropout)
-        # self.LinearLayers1 = nn.Sequential(self.linear2, self.bn2, nn.ReLU(), self.dp, self.linear3, self.bn3, nn.ReLU(), self.dp, self.linear4, self.bn4, nn.ReLU(), self.dp)
-        # self.pool1 = nn.MaxPool1d(N)
-        # self.LinearLayers2 = nn.Sequential(self.linear5, self.bn5, nn.ReLU(), self.dp, self.linear6, self.bn6, nn.ReLU(), self.dp, self.linear7)
-        # self.dp = nn.Dropout(p=args.dropout)
         self.LinearLayers1 = nn.Sequential(self.linear2, self.bn2, nn.ReLU(), self.linear3, self.bn3, nn.ReLU(), self.linear4, self.bn4, nn.ReLU())
         self.pool1 = nn.AdaptiveAvgPool1d(1)
         self.LinearLayers2 = nn.Sequential(self.linear5, self.bn5, nn.ReLU(), self.linear6, self.bn6, nn.ReLU(), self.linear7)
@@ -241,41 +181,11 @@ class GCNResNet(nn.Module):
             h = block(h, A)
         
         h = self.LinearLayers1(h)
-        h = self.pool1(h.transpose(1, 2)).squeeze()
+        h = self.pool1(h.transpose(1, 2)).squeeze() # (B, N, out_features) -> (B, out_features)
         h = self.LinearLayers2(h)
 
         # h = self.final_gcn(h, A)
         return h
-
-    def get_adj(self, x):
-        B, N, _ = x.size()
-        distances = torch.cdist(x, x, p=2) # (B, N, N)
-        _, indices = torch.topk(distances, k=self.k, dim=-1, largest=False)
-        adjacency_matrices = torch.zeros(B, N, N, device=x.device)
-        adjacency_matrices.scatter_(2, indices, 1)
-        return adjacency_matrices
-
-    def process_graph(self, adjs):
-        B, N, _ = adjs.size()
-        degrees = torch.sum(adjs, dim=2)
-        D = torch.diag_embed(degrees)
-        D_sqrt_inv = torch.sqrt(torch.reciprocal(D))
-        D_sqrt_inv[torch.isinf(D_sqrt_inv)] = 0.0
-
-        normalized_adj_matrices = torch.eye(N, device=D.device).unsqueeze(0).repeat(B, 1, 1) - torch.bmm(torch.bmm(D_sqrt_inv, adjs), D_sqrt_inv.transpose(1, 2))
-
-        return normalized_adj_matrices
-
-    def address_overfitting_graph(self, adjs):
-        B, N, _ = adjs.size()
-        indentity = torch.eye(N, device=adjs.device).unsqueeze(0).repeat(B, 1, 1)
-        adjs_hat = adjs + indentity
-        D_hat = torch.diag_embed(torch.sum(adjs_hat, dim=2))
-        D_hat_sqrt_inv = torch.sqrt(torch.reciprocal(D_hat))
-        D_hat_sqrt_inv[torch.isinf(D_hat_sqrt_inv)] = 0.0
-        new_matrix = torch.bmm(torch.bmm(D_hat_sqrt_inv, adjs_hat), D_hat_sqrt_inv)
-
-        return new_matrix
 
 class GCNPolynomialBlock(nn.Module):
     def __init__(self, args, in_features, hidden_dim, out_dim):
@@ -295,7 +205,7 @@ class GCNPolynomialBlock(nn.Module):
         x = x.view(B, N, C)
         return F.relu(x)
 
-class GCNPolynomial(nn.Module):
+class GCNPolynomial(BaseGCN):
     def __init__(self, args, N=1024):
         super(GCNPolynomial, self).__init__()
         N = args.num_points
@@ -361,39 +271,8 @@ class GCNPolynomial(nn.Module):
 
         return h
     
-    def get_adj(self, x):
-        B, N, _ = x.size()
-        distances = torch.cdist(x, x, p=2) # (B, N, N)
-        _, indices = torch.topk(distances, k=self.k, dim=-1, largest=False)
-        adjacency_matrices = torch.zeros(B, N, N, device=x.device)
-        adjacency_matrices.scatter_(2, indices, 1)
-        return adjacency_matrices
-
-    def process_graph(self, adjs):
-        B, N, _ = adjs.size()
-        degrees = torch.sum(adjs, dim=2)
-        D = torch.diag_embed(degrees)
-        D_sqrt_inv = torch.sqrt(torch.reciprocal(D))
-        D_sqrt_inv[torch.isinf(D_sqrt_inv)] = 0.0
-
-        normalized_adj_matrices = torch.eye(N, device=D.device).unsqueeze(0).repeat(B, 1, 1) - torch.bmm(torch.bmm(D_sqrt_inv, adjs), D_sqrt_inv.transpose(1, 2))
-
-        return normalized_adj_matrices
-
-    def address_overfitting_graph(self, adjs):
-        B, N, _ = adjs.size()
-        indentity = torch.eye(N, device=adjs.device).unsqueeze(0).repeat(B, 1, 1)
-        adjs_hat = adjs + indentity
-        D_hat = torch.diag_embed(torch.sum(adjs_hat, dim=2))
-        D_hat_sqrt_inv = torch.sqrt(torch.reciprocal(D_hat))
-        D_hat_sqrt_inv[torch.isinf(D_hat_sqrt_inv)] = 0.0
-        new_matrix = torch.bmm(torch.bmm(D_hat_sqrt_inv, adjs_hat), D_hat_sqrt_inv)
-
-        return new_matrix
             
-            
-        
-        
+    
 
 # HJ
 class GCNLayer(nn.Module):
@@ -409,7 +288,7 @@ class GCNLayer(nn.Module):
         # output = self.dp1(output)
         return output
 
-class GCN(nn.Module):
+class GCN(BaseGCN):
     def __init__(self, args, in_c=3, hid_c=64, out_c=40, N=1024) -> None:
         super(GCN, self).__init__()
         N = args.num_points
@@ -446,10 +325,6 @@ class GCN(nn.Module):
         return lambda data: nn.BatchNorm1d(features)(data.view(-1, features)).view(data.size())
 
     def forward(self, x):
-        """
-        input:
-        x:[batch_size, N, 3]
-        """
         # x = x.permute(0, 2, 1)
         adjs = self.get_adj(x)
         # ipdb.set_trace() 
@@ -466,63 +341,6 @@ class GCN(nn.Module):
         x = self.pool1(x.transpose(1, 2)).squeeze()
         x = self.LinearLayers2(x)
         # output = F.log_softmax(x, dim=-1)
-        return x
-    
-    # def cal_batch_adj(self, x):
-    #     # ipdb.set_trace()
-    #     device = x.device
-    #     x = x.cpu().numpy()
-    #     x = x.reshape(-1, 3)
-    #     knn = NearestNeighbors(n_neighbors=self.k)
-    #     knn.fit(x)
-    #     adj = knn.kneighbors_graph(x, mode='connectivity').toarray()
-    #     adj = torch.from_numpy(adj).to(device)
-    #     # adj = adj.unsqueeze(0)
-    #     return adj
-
-    # def cal_adj(self, x):
-    #     # ipdb.set_trace()
-    #     adjs = []
-    #     B = x.size(0)
-    #     for i in range(B):
-    #         batch_points = x[i]
-    #         batch_adj = self.cal_batch_adj(batch_points)
-    #         adjs.append(batch_adj)
-    #     # ipdb.set_trace()
-    #     adjs = torch.stack(adjs, dim=0)
-
-    #     return adjs
-    
-    def get_adj(self, x):
-        B, N, _ = x.size()
-        distances = torch.cdist(x, x, p=2) # (B, N, N)
-        _, indices = torch.topk(distances, k=self.k, dim=-1, largest=False)
-        adjacency_matrices = torch.zeros(B, N, N, device=x.device)
-        adjacency_matrices.scatter_(2, indices, 1)
-        return adjacency_matrices
-
-
-    
-    def process_graph(self, adjs):
-        B, N, _ = adjs.size()
-        degrees = torch.sum(adjs, dim=2)
-        D = torch.diag_embed(degrees)
-        D_sqrt_inv = torch.sqrt(torch.reciprocal(D))
-        D_sqrt_inv[torch.isinf(D_sqrt_inv)] = 0.0
-
-        normalized_adj_matrices = torch.eye(N, device=D.device).unsqueeze(0).repeat(B, 1, 1) - torch.bmm(torch.bmm(D_sqrt_inv, adjs), D_sqrt_inv.transpose(1, 2))
-
-        return normalized_adj_matrices
-
-    def address_overfitting_graph(self, adjs):
-        B, N, _ = adjs.size()
-        indentity = torch.eye(N, device=adjs.device).unsqueeze(0).repeat(B, 1, 1)
-        adjs_hat = adjs + indentity
-        D_hat = torch.diag_embed(torch.sum(adjs_hat, dim=2))
-        D_hat_sqrt_inv = torch.sqrt(torch.reciprocal(D_hat))
-        D_hat_sqrt_inv[torch.isinf(D_hat_sqrt_inv)] = 0.0
-        new_matrix = torch.bmm(torch.bmm(D_hat_sqrt_inv, adjs_hat), D_hat_sqrt_inv)
-
-        return new_matrix
+        return x      
 
 

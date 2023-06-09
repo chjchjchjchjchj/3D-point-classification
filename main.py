@@ -7,7 +7,8 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from data import ModelNet40
-from model import PointNet, DGCNN, GCN, GCNResNet, GCNPolynomial
+from model import GCN, GCNResNet, GCNPolynomial
+from baselines import PointNet, DGCNN
 import numpy as np
 from torch.utils.data import DataLoader
 import sklearn.metrics as metrics
@@ -145,13 +146,17 @@ def main(args):
     else:
         class_correct = np.zeros(40)
         class_total = np.zeros(40)
-        model.load_state_dict(torch.load(args.model_path))
+        model.load_state_dict(torch.load(args.model_path)['model_state_dict'])
         test_loader = DataLoader(ModelNet40(partition='test', num_points=args.num_points), num_workers=8,
                             batch_size=1, shuffle=False, drop_last=False)
+
+        # test_step(model=model, epoch=1, test_loader=test_loader, config=args, device=device)
         with torch.no_grad():
             for i, all_data in enumerate(test_loader):
                 data, label = all_data[0].to(device), all_data[1].to(device).squeeze()
-
+                if args.model_name == 'pointnet' or args.model_name == 'dgcnn':
+                    data = data.permute(0, 2, 1)
+                    
                 prediction = model(data)
 
                 correct = prediction == label
