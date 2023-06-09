@@ -1,11 +1,11 @@
 # 3D-point-classification
 
 ## Abstract
-The purpose of this experiment report is to investigate and evaluate the application of Graph Convolutional Networks (GCN) in the task of 3D point cloud data classification. Point cloud data is a common three-dimensional representation widely used in the field of computer vision. Traditional methods struggle to handle the complex relationships between points in a point cloud, whereas GCN models can leverage the topological structure of point clouds for feature extraction and classification. In this study, I conducted experiments using the ModelNet40 dataset and employed the K-Nearest Neighbors (KNN) algorithm to establish an adjacency matrix for each class and used GCN as a fundamental building block. I progressively increased the number of layers and modified the network architecture to improve the model. As a result, the accuracy of point cloud classification reached **86.79\%**.
+The purpose of this experiment report is to investigate and evaluate the application of Graph Convolutional Networks (GCN) in the task of 3D point cloud data classification. Point cloud data is a common three-dimensional representation widely used in the field of computer vision. Traditional methods struggle to handle the complex relationships between points in a point cloud, whereas GCN models can leverage the topological structure of point clouds for feature extraction and classification. In this study, experiments were conducted using the ModelNet40 dataset. The K-Nearest Neighbors (KNN) algorithm was employed to establish an adjacency matrix for each class, while Graph Convolutional Networks (GCN) were utilized as fundamental building blocks. The model's performance was progressively enhanced by increasing the number of layers and modifying the network architecture. Consequently, the point cloud classification accuracy achieved an impressive **86.79%**.
 
 
 ## Datasets
-I validate my models on datasets Modelnet40. 
+Models are validated on datasets Modelnet40. 
 ModelNet40 is a widely used dataset for three-dimensional object recognition and understanding. It was created by researchers at Princeton University and serves as a benchmark for machine learning and computer vision algorithms in the field of 3D object classification.
 Download the zip from https://modelnet.cs.princeton.edu/ 
 ```
